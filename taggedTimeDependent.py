@@ -40,7 +40,7 @@ def individualTimeDependent(normalization, sign, cosThetaL, cosThetaK, phi, t, x
             timeDependentTerm(K1c, W1c, H1c, Z1c) * cosThetaK2 +
             timeDependentTerm(K2s, W2s, H2s, Z2s) * sinThetaK2 * cos2ThetaL +
             timeDependentTerm(K2c, W2c, H2c, Z2c) * cosThetaK2 * cos2ThetaL +
-            timeDependentTerm(K3, W3, H3, Z3) * sinThetaK2 * cosThetaK2 * jnp.cos(2 * phi) +
+            timeDependentTerm(K3, W3, H3, Z3) * sinThetaK2 * sinThetaL2 * jnp.cos(2 * phi) +
             timeDependentTerm(K4, W4, H4, Z4) * sin2ThetaK * sin2ThetaL * jnp.cos(phi) +
             timeDependentTerm(W5, K5, H5, Z5) * sin2ThetaK * sinThetaL * jnp.cos(phi) +
             timeDependentTerm(W6s, K6s, H6s, Z6s) * sinThetaK2 * cosThetaL +
@@ -284,12 +284,13 @@ def run(key, massless, nEvents, nToys, effSS, effOS, wSS, wOS, B0proportion=0.5)
     values = np.empty(shape=(nToys, len(paramNames)))
     errors = np.empty(shape=(nToys, len(paramNames)))
     keys = random.split(key, nToys)
-
-    for i in range(nToys):
+    i = 0
+    failedCounter = 0
+    while i < nToys:
 
         fitParameters = generation.getFitParams(massless)
         tStart = time.time()
-        data = generateData(keys[i], nEvents, generation.getAllParams(), B0proportion, effSS, effOS, wSS, wOS)
+        data = generateData(keys[i], nEvents, generation.getAllParamsFromMassless(*fitParameters), B0proportion, effSS, effOS, wSS, wOS)
 
         if massless:
             nll = MasslessNLL(*data, wSS, wOS)
@@ -307,27 +308,30 @@ def run(key, massless, nEvents, nToys, effSS, effOS, wSS, wOS, B0proportion=0.5)
         m.migrad()
         m.hesse()
 
-        if not m.fmin.is_valid:
+        if not m.fmin.is_valid or not m.fmin.has_accurate_covar or m.fmin.has_parameters_at_limit or m.fmin.hesse_failed:
             print(m.fmin)
+            print(f"Failed fit #{i} in {time.time() - tStart:.3f} seconds")
+            failedCounter += 1
+            continue
 
         values[i, :] = np.array(m.values)
         errors[i, :] = np.array(m.errors)
         print(f"Performed fit #{i} in {time.time() - tStart:.3f} seconds")
+        i += 1
 
     trueValues = np.array(generation.getFitParams(massless)).T
     pulls = (values - trueValues) / errors
-
     return paramNames, pulls, values
 
 def main():
     saveProjectionsValue = 5
     massless = True
     nEvents = 4000
-    nToys = 250
-    names, pulls, values = run(random.key(1), massless, nEvents, nToys, 1, 1, 0.0, 0.0)
+    nToys = 100
+    names, pulls, values = run(random.key(1), massless, nEvents, nToys, 0., 0., 0., 0.)
     plot.project(saveProjectionsValue, massless, pulls, values)
     plot.plotSummary(names, pulls, True, False)
-    plot.plotSummary(names, values, True, True)
+    plot.plotSummary(names, values, True, True, generation.getFitParams(massless))
 
 
 if __name__ == "__main__":
