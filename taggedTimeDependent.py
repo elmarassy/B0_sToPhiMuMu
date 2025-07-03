@@ -5,15 +5,33 @@ import numpy as np
 from iminuit import Minuit
 import cProfile
 import generation
-from torchquad import Simpson, MonteCarlo, set_up_backend
+from torchquad import Simpson, set_up_backend
 import jax
 import jax.numpy as jnp
 from jax import jit, vmap, random
+import jax
+import jax.numpy as jnp
+import tensorflow_probability.substrates.jax.math as tfp_math
 import plot
+
+
+
+import jax
+import jax.numpy as jnp
+
+import tools
+
+#
+# @jax.jit
+# def wofz(z):
+#     return tfp_math.erfcx(-1j*z)
 
 set_up_backend("jax", data_type="float64")
 integrator = Simpson()
 
+# @jax.jit
+# def faddeeva(x):
+#     return tfp_math.erfcx(-1j*x)
 
 @jit
 def individualTimeDependent(normalization, sign, cosThetaL, cosThetaK, phi, t, x, y,
@@ -31,9 +49,39 @@ def individualTimeDependent(normalization, sign, cosThetaL, cosThetaK, phi, t, x
     sinThetaK = jnp.sqrt(sinThetaK2)
     sin2ThetaL = 2.0 * sinThetaL * cosThetaL
     sin2ThetaK = 2.0 * sinThetaK * cosThetaK
+    # sigmaT = 0.1
+    # gamma = 1
+    #
+    # a = 1/(2*sigmaT**2)
+    # b = (t/(sigmaT**2)-gamma)
+    # wX = x*gamma
+    # wY = y*gamma
+
+    # C = jnp.sqrt(jnp.pi/a) / 4
+    # timeDependentTerm = lambda coshFactor, cosFactor, H_i, Z_i: (
+    #         coshFactor*jnp.cosh(y*t) - H_i*jnp.sinh(y*t) + sign*(cosFactor*jnp.cos(x*t) - Z_i*jnp.sin(x*t)))
+    # xTerm = jnp.sqrt(jnp.pi / a) * wofz((wX - 1j*b) / (2*jnp.sqrt(a))) / 2
+    #
+    # z1 = 1j*(b + wY) / 2*jnp.sqrt(a)
+    # z2 = 1j*(b - wY) / 2*jnp.sqrt(a)
+    # f1 = wofz(z1)
+    # f2 = wofz(z2)
+    # # d = b*wY/(2*a)
+    # coshTerm = C * jnp.real(f1 + f2)
+    # sinhTerm = C * jnp.real(f1 - f2)
+    # # sinhTerm = C * (jnp.sinh(d) * (jnp.exp(d) * jsp.erf(z1) - jnp.exp(-d) * jsp.erf(z2))/2)
+
+    # timeDependentTerm = lambda coshFactor, cosFactor, H_i, Z_i: (
+    #         jnp.exp(-a*t*t)*(coshFactor*coshTerm - H_i * sinhTerm + sign*(cosFactor*jnp.real(xTerm) - Z_i*jnp.imag(xTerm))))
+    gamma = 1
+    sigmaT = 0.01
+    a = (1/jnp.sqrt(2)) * (t/sigmaT + gamma*sigmaT*(1j*x-1))
+    b = t*gamma*(1j*x-1) + (gamma * sigmaT * (1j*x-1))**2 / 2
+
+    xTerm = 0.5*(1 + tools.erf(a))*jnp.exp(b)
 
     timeDependentTerm = lambda coshFactor, cosFactor, H_i, Z_i: (
-            coshFactor*jnp.cosh(y*t) - H_i*jnp.sinh(y*t) + sign*(cosFactor*jnp.cos(x*t) - Z_i*jnp.sin(x*t)))
+            coshFactor*jnp.cosh(y*t) - H_i*jnp.sinh(y*t) + sign*(cosFactor*jnp.real(xTerm) - Z_i*jnp.imag(xTerm)))
 
     return (9.0 / 64.0 / jnp.pi / normalization) * jnp.exp(-t) * (
             timeDependentTerm(K1s, W1s, H1s, Z1s) * sinThetaK2 +
@@ -86,22 +134,32 @@ def integrateIndividual(sign, x, y,
                         W1s, W1c, W2s, W2c, W3, W4, W5, W6s, W7, W8, W9,
                         H1s, H1c, H2s, H2c, H3, H4, H5, H6s, H7, H8, H9,
                         Z1s, Z1c, Z2s, Z2c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9):
-    return (1./8)*(
-            (-3*K1c - 6*K1s + K2c + 2*K2s + (3*H1c + 6*H1s - H2c - 2*H2s)*y)/(-1 + y*y) +
-            sign * (3*W1c + 6*W1s - W2c - 2*W2s - (3*Z1c + 6*Z1s - Z2c - 2*Z2s)*x)/(1 + x*x)
-    )
+
+    return integrator.integrate(lambda variables:
+                                individualTimeDependent(1, sign, variables[:, 0], variables[:, 1], variables[:, 2], variables[:, 3], x, y,
+                                                        K1s, K1c, K2s, K2c, K3, K4, K5, K6s, K7, K8, K9,
+                                                        W1s, W1c, W2s, W2c, W3, W4, W5, W6s, W7, W8, W9,
+                                                        H1s, H1c, H2s, H2c, H3, H4, H5, H6s, H7, H8, H9,
+                                                        Z1s, Z1c, Z2s, Z2c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9),
+                                dim=4, N=200000, integration_domain=[[-1, 1], [-1, 1], [-jnp.pi, jnp.pi], [0.0, 10.0]])
+    # return evaluator(t)
+
+    # return (1./8)*(
+    #         (-3*K1c - 6*K1s + K2c + 2*K2s + (3*H1c + 6*H1s - H2c - 2*H2s)*y)/(-1 + y*y) +
+    #         sign * (3*W1c + 6*W1s - W2c - 2*W2s - (3*Z1c + 6*Z1s - Z2c - 2*Z2s)*x)/(1 + x*x)
+    # )
 
 
 @jit
 def neg_log_likelihood(params, cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS, normB, normBBar):
-    pdf_vals = vmap(lambda ctl, ctk, p, t, qSS_, qOS_: (
-            (1 + qSS_ * (1 - 2 * wSS)) *
-            (1 + qOS_ * (1 - 2 * wOS)) *
+    pdf_vals = vmap(lambda ctl, ctk, p, t, qSS_, qOS_, wSS_, wOS_: (
+            (1 + qSS_ * (1 - 2 * wSS_)) *
+            (1 + qOS_ * (1 - 2 * wOS_)) *
             individualTimeDependent(normB, 1, ctl, ctk, p, t, *params) +
-            (1 - qSS_ * (1 - 2 * wSS)) *
-            (1 - qOS_ * (1 - 2 * wOS)) *
+            (1 - qSS_ * (1 - 2 * wSS_)) *
+            (1 - qOS_ * (1 - 2 * wOS_)) *
             individualTimeDependent(normBBar, -1, ctl, ctk, p, t, *params)
-    ))(cosThetaL, cosThetaK, phi, time, qSS, qOS)
+    ))(cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS)
     return -jnp.sum(jnp.log(pdf_vals))
 
 
@@ -140,6 +198,43 @@ def helper2(x, y,
                                        H1s, H1c, H2s, H2c, H3, H4, H5, H6s, H7, H8, H9,
                                        Z1s, Z1c, Z2s, Z2c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9])
 
+@jit
+def helperACP(x, y,
+            K1c, K3, K4, K5, K6s, K7, K8, K9,
+            ACP, W1c, W3, W4, W5, W6s, W7, W8, W9,
+            H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
+            Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9):
+
+    K1s = (3.0/4.0) * (1 - y*y - K1c + y*H1c) + y*H1s
+    K2s = (1.0/4.0) * (1 - y*y - K1c + y*H1c) + y*H1s/3.0
+
+    W1s = 3*(4 * ACP * (1 + x*x) + (16*Z1s/3 + 4*Z1c)*x - 4*W1c)/16.0
+    W2s = W1s/3.0
+    H2s = H1s/3.0
+    Z2s = Z1s/3.0
+
+    K2c = -K1c
+    W2c = -W1c
+    H2c = -H1c
+    Z2c = -Z1c
+
+    normB = integrateIndividual(1, x, y,
+                                K1s, K1c, K2s, K2c, K3, K4, K5, K6s, K7, K8, K9,
+                                W1s, W1c, W2s, W2c, W3, W4, W5, W6s, W7, W8, W9,
+                                H1s, H1c, H2s, H2c, H3, H4, H5, H6s, H7, H8, H9,
+                                Z1s, Z1c, Z2s, Z2c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9)
+    normBBar = integrateIndividual(-1, x, y,
+                                   K1s, K1c, K2s, K2c, K3, K4, K5, K6s, K7, K8, K9,
+                                   W1s, W1c, W2s, W2c, W3, W4, W5, W6s, W7, W8, W9,
+                                   H1s, H1c, H2s, H2c, H3, H4, H5, H6s, H7, H8, H9,
+                                   Z1s, Z1c, Z2s, Z2c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9)
+    return normB, normBBar, jnp.array([x, y,
+                                       K1s, K1c, K2s, K2c, K3, K4, K5, K6s, K7, K8, K9,
+                                       W1s, W1c, W2s, W2c, W3, W4, W5, W6s, W7, W8, W9,
+                                       H1s, H1c, H2s, H2c, H3, H4, H5, H6s, H7, H8, H9,
+                                       Z1s, Z1c, Z2s, Z2c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9])
+
+
 def masslessNLLHelper(x, y,
                       K1c, K3, K4, K5, K6s, K7, K8, K9,
                       W1s, W1c, W3, W4, W5, W6s, W7, W8, W9,
@@ -155,6 +250,30 @@ def masslessNLLHelper(x, y,
     return lambda cosThetaL, cosThetaK, phi, t, qSS, qOS, wSS, wOS: (
         neg_log_likelihood(arr, cosThetaL, cosThetaK, phi, t, qSS, qOS, wSS, wOS, normB, normBBar))
 
+def masslessNLLHelperACP(x, y,
+                         K1c, K3, K4, K5, K6s, K7, K8, K9,
+                         ACP, W1c, W3, W4, W5, W6s, W7, W8, W9,
+                         H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
+                         Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9):
+    normB, normBBar, arr = helperACP(x, y,
+                                   K1c, K3, K4, K5, K6s, K7, K8, K9,
+                                   ACP, W1c, W3, W4, W5, W6s, W7, W8, W9,
+                                   H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
+                                   Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9)
+
+    return lambda cosThetaL, cosThetaK, phi, t, qSS, qOS, wSS, wOS: (
+        neg_log_likelihood(arr, cosThetaL, cosThetaK, phi, t, qSS, qOS, wSS, wOS, normB, normBBar))
+
+@jit
+def masslessNLL2(params, data):
+    normB, normBBar, arr = helper2(26.93, 0.124, *params)
+    return neg_log_likelihood(arr, *data, normB, normBBar)
+
+def masslessNLL3(data):
+    @jit
+    def fn(params):
+        return masslessNLL2(params, data)
+    return fn
 
 class FullNLL:
     def __init__(self, cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS):
@@ -198,15 +317,19 @@ class FullNLL:
         return 1e12
 
 @jit
-def value(params, cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS):
+def valueW1s(params, cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS):
     return masslessNLLHelper(*params)(cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS)
 
+@jit
+def valueACP(params, cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS):
+    return masslessNLLHelperACP(*params)(cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS)
 
-gradHelper = jax.grad(value, argnums=0)
 
+gradHelperW1s = jax.grad(valueW1s, argnums=0)
+gradHelperACP = jax.grad(valueACP, argnums=0)
 class MasslessNLL:
 
-    def __init__(self, cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS):
+    def __init__(self, cosThetaL, cosThetaK, phi, time, qSS, qOS, wSS, wOS, useACP):
         self.cosThetaL = cosThetaL
         self.cosThetaK = cosThetaK
         self.phi = phi
@@ -215,13 +338,15 @@ class MasslessNLL:
         self.qOS = qOS
         self.wSS = wSS
         self.wOS = wOS
-        self.gradientHelper = gradHelper
+        self.useACP = useACP
+        self.gradientHelper = gradHelperACP if useACP else gradHelperW1s
 
     def __call__(self, x, y,
                  K1c, K3, K4, K5, K6s, K7, K8, K9,
                  W1s, W1c, W3, W4, W5, W6s, W7, W8, W9,
                  H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
                  Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9):
+
 
         likelihood = masslessNLLHelper(x, y,
                                        K1c, K3, K4, K5, K6s, K7, K8, K9,
@@ -274,70 +399,111 @@ def generateData(key, N, params, B0proportion, effSS, effOS, mistagSS, mistagOS)
     cutoff = random.uniform(keys[9], shape=(mul*N,), minval=0.0, maxval=1.0)
 
     accept = jnp.nonzero(probabilities > cutoff, size=N, fill_value=-1)[0]
-    return cosThetaL[accept], cosThetaK[accept], phi[accept], t[accept], tagChoiceOS[accept], tagChoiceSS[accept]
+    return cosThetaL[accept], cosThetaK[accept], phi[accept], t[accept], tagChoiceSS[accept], tagChoiceOS[accept], jnp.full(N, mistagSS), jnp.full(N, mistagOS)
 
 
-def run(key, massless, nEvents, nToys, effSS, effOS, wSS, wOS, B0proportion=0.5):
+def run(key, massless, useACP, nEvents, nToys, effSS, effOS, wSS, wOS, saveProjectionValue, B0proportion=0.5):
 
-    paramNames = generation.getFitParamNames(massless)
+    paramNames = generation.getFitParamNames(massless, useACP)
+    trueValues = np.array(generation.getFitParams(massless, useACP))
 
+    savedData = []
     values = np.empty(shape=(nToys, len(paramNames)))
     errors = np.empty(shape=(nToys, len(paramNames)))
-    keys = random.split(key, nToys)
+    pulls = np.empty(shape=(nToys, len(paramNames)))
+
     i = 0
     failedCounter = 0
     while i < nToys:
-
-        fitParameters = generation.getFitParams(massless)
+        key, key1 = jax.random.split(key)
+        fitParameters = generation.getFitParams(massless, useACP)
         tStart = time.time()
-        data = generateData(keys[i], nEvents, generation.getAllParamsFromMassless(*fitParameters), B0proportion, effSS, effOS, wSS, wOS)
+        data = generateData(key1, nEvents, generation.getAllParamsFromMassless(*fitParameters, useACP), B0proportion, effSS, effOS, wSS, wOS)
 
         if massless:
-            nll = MasslessNLL(*data, wSS, wOS)
+            nll = MasslessNLL(*data, useACP)
         else:
-            nll = FullNLL(*data, wSS, wOS)
+            nll = FullNLL(*data, useACP)
 
         m = Minuit(nll, *fitParameters)
 
-        m.fixed["x"] = True
-        m.fixed["y"] = True
+        # m.fixed["x"] = True
+        # m.fixed["y"] = True
+        #
+        # m.fixed["W1s"] = True
+        # m.fixed["W1c"] = True
+        # m.fixed["W2s"] = True
+        # m.fixed["W2c"] = True
+        # m.fixed["W3"] = True
+        # m.fixed["W4"] = True
+        # m.fixed["K5"] = True
+        # m.fixed["K6s"] = True
+        # m.fixed["W7"] = True
+        # m.fixed["K8"] = True
+        # m.fixed["K9"] = True
+        # #
+        # m.fixed["Z1s"] = True
+        # m.fixed["Z1c"] = True
+        # m.fixed["Z2s"] = True
+        # m.fixed["Z2c"] = True
+        # m.fixed["Z3"] = True
+        # m.fixed["Z4"] = True
+        # m.fixed["Z5"] = True
+        # m.fixed["Z6s"] = True
+        # m.fixed["Z7"] = True
+        # m.fixed["Z8"] = True
+        # m.fixed["Z9"] = True
 
         m.limits = [(-1 - 4*abs(param), 1 + 4*abs(param)) for param in fitParameters]
         m.strategy = 0
         m.errordef = Minuit.LIKELIHOOD
         m.migrad()
         m.hesse()
-
+        print('numnber: ',m.nfcn)
         if not m.fmin.is_valid or not m.fmin.has_accurate_covar or m.fmin.has_parameters_at_limit or m.fmin.hesse_failed:
             print(m.fmin)
             print(f"Failed fit #{i} in {time.time() - tStart:.3f} seconds")
             failedCounter += 1
             continue
+        vals = np.array(m.values)
+        errs = np.array(m.errors)
+        values[i, :] = vals
+        errors[i, :] = errs
+        pulls[i, :] = (vals - trueValues) / errs
+        if np.any(np.abs(pulls[i, :]) > saveProjectionValue):
+            savedData.append((data, m.covariance.correlation()))
 
-        values[i, :] = np.array(m.values)
-        errors[i, :] = np.array(m.errors)
         print(f"Performed fit #{i} in {time.time() - tStart:.3f} seconds")
         i += 1
 
-    trueValues = np.array(generation.getFitParams(massless)).T
-    pulls = (values - trueValues) / errors
-    return paramNames, pulls, values
+    return paramNames, pulls, values, savedData
 
 def main():
-    saveProjectionsValue = 5
+    saveProjectionsValue = 4
     massless = True
+    useACP = False
     nEvents = 4000
-    nToys = 100
-    names, pulls, values = run(random.key(1), massless, nEvents, nToys, 0., 0., 0., 0.)
-    plot.project(saveProjectionsValue, massless, pulls, values)
-    plot.plotSummary(names, pulls, True, False)
-    plot.plotSummary(names, values, True, True, generation.getFitParams(massless))
+    nToys = 3
+    # wSS = 0.42
+    # wOS = 0.39
+    # effSS = 0.40
+    # effOS = 0.80
+    wSS = 0.0
+    wOS = 0.0
+    effSS = 1
+    effOS = 1
+    # names, pulls, values, savedData = run(random.key(1), massless, useACP, nEvents, nToys, effSS, effOS, wSS, wOS, saveProjectionsValue)
+    plot.project(saveProjectionsValue, [], [], [], effSS, effOS, wSS, wOS, "plots", useACP)
+
+    # plot.project(saveProjectionsValue, pulls, values, savedData, effSS, effOS, wSS, wOS, "plots", useACP)
+    # plot.plotSummary(names, pulls, True, False, "plots")
+    # plot.plotSummary(names, values, True, True, "plots", generation.getFitParams(massless, useACP))
 
 
 if __name__ == "__main__":
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # profiler = cProfile.Profile()
+    # profiler.enable()
     main()
-    profiler.disable()
-    stats = pstats.Stats(profiler).sort_stats('time')
+    # profiler.disable()
+    # stats = pstats.Stats(profiler).sort_stats('time')
     # stats.print_stats(100)
