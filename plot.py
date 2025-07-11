@@ -2,21 +2,118 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.offsetbox import AnchoredText
 import os
-import run
 import generation as generation
 import jax
 import tools
 from matplotlib.gridspec import GridSpec
 import matplotlib.patches
+import run
 
 from run import cosThetaLRange, cosThetaKRange, phiRange, timeRange, massRange
 from run import projectSignalCosThetaL, projectSignalCosThetaK, projectSignalPhi, projectSignalT, projectSignalMass, projectBackgroundAngles, projectBackgroundTime, projectBackgroundMass
+
 projectionRanges = [cosThetaLRange, cosThetaKRange, phiRange, timeRange, massRange]
 signalProjectionFunctions = [projectSignalCosThetaL, projectSignalCosThetaK, projectSignalPhi, projectSignalT, projectSignalMass]
 backgroundProjectionFunctions = [projectBackgroundAngles, projectBackgroundAngles, projectBackgroundAngles, projectBackgroundTime, projectBackgroundMass]
 
 projectionNames = [r"$\cos{\theta_l}$", r"$\cos{\theta_k}$", r"$\phi$", "$t$", "$m_{B_s^0}$"]
 colors = {'Both': 'green', 'SS': 'yellow', 'OS': 'orange', 'Untagged': 'red', 'Fit': 'blue'}
+#
+# wSS = generation.trueValues['wSS']
+# wOS = generation.trueValues['wOS']
+# effSS = generation.trueValues['effSS']
+# effOS = generation.trueValues['effOS']
+#
+# bothWeight = (1. - wSS) * (1. - wOS)
+# ssWeight = (1. - wSS) / 2
+# osWeight = (1. - wOS) / 2
+# untaggedWeight = 1. / 4
+#
+# cmap = plt.get_cmap('viridis')
+#
+# colors = [cmap(i) for i in np.linspace(0, 1, 4)]
+
+
+def plotGeneration(axis, signalParams, backgroundParams, f, sign, projectionIndex, stack=False):
+
+    projectionAxis = np.linspace(*projectionRanges[projectionIndex], 1000)
+    width = projectionAxis[1] - projectionAxis[0]
+    signal = f*signalProjectionFunctions[projectionIndex](projectionAxis, sign, *signalParams)
+    oppositeSignal = f*signalProjectionFunctions[projectionIndex](projectionAxis, -sign, *signalParams)
+
+    both = signal*effSS*effOS*bothWeight
+    ss = signal*effSS*ssWeight
+    os = signal*effOS*osWeight
+    untagged = signal*untaggedWeight
+    scale = np.sum(both + ss + os + untagged) * width
+
+    background = (1-f)*backgroundProjectionFunctions[projectionIndex](projectionAxis, *backgroundParams)*scale
+    base = 0
+    if stack:
+        base = background
+        ax.bar(projectionAxis, background, width=width, color='tomato')
+
+    ax.bar(projectionAxis, untagged, bottom=base, width=width, color=colors[0])
+    ax.bar(projectionAxis, ss, bottom=base + untagged, width=width, color=colors[1])
+    ax.bar(projectionAxis, os, bottom=base + untagged + ss, width=width, color=colors[2])
+    ax.bar(projectionAxis, both, bottom=base + untagged + ss + os, width=width, color=colors[3])
+
+    signal *= scale/f
+    if not stack:
+        axis.plot(projectionAxis, signal, color='red')
+    axis.plot(projectionAxis, background, linestyle='--', color='orange')
+    axis.plot(projectionAxis, signal + background, color='black', linestyle='--')
+    axis.set_ylim(bottom=0)
+#
+#
+# def plotProjection(axis, signalParams, backgroundParams, f, sign, projectionIndex, data, both, ss, os, untagged):
+#     dataBins = 100
+#     # both = data[both]
+#     # ss = data[ss]
+#     # os = data[os]
+#     # untagged = data[untagged]
+#     # total = axis.hist([both, ss, os, untagged], bins=dataBins, range=projectionRanges[projectionIndex],
+#     #                       weights=[np.full_like(both, bothWeight), np.full_like(ss, ssWeight), np.full_like(os, osWeight), np.full_like(untagged, untaggedWeight)])[0]
+#     # both = np.histogram(data[both], bins=dataBins, range=projectionRanges[projectionIndex])[0]
+#     # ss = np.histogram(data[ss], bins=dataBins, range=projectionRanges[projectionIndex])[0]
+#     # os = np.histogram(data[os], bins=dataBins, range=projectionRanges[projectionIndex])[0]
+#     # untagged = np.histogram(data[untagged], bins=dataBins, range=projectionRanges[projectionIndex])[0]
+#     # total = both*bothWeight + ss*ssWeight + os*osWeight + untagged*untaggedWeight
+#
+#
+#     projectionAxis = np.linspace(*projectionRanges[projectionIndex], 1000)
+#     dataAxis = np.linspace(*projectionRanges[projectionIndex], dataBins)
+#     scale = np.sum(total) * (dataAxis[1] - dataAxis[0])
+#
+#     axis.errorbar(dataAxis, total, yerr=np.sqrt(total), fmt='.', ecolor='black', capsize=3)
+#     signal = f*signalProjectionFunctions[projectionIndex](projectionAxis, sign, *signalParams) * scale
+#     background = (1-f)*backgroundProjectionFunctions[projectionIndex](projectionAxis, *backgroundParams) * scale
+#     axis.plot(projectionAxis, signal)
+#     axis.plot(projectionAxis, background, linestyle='--')
+#     axis.plot(projectionAxis, signal + background)
+#     axis.set_ylim(bottom=0)
+
+
+#
+# params = generation.getFitParams(True)
+# p = generation.getAllSignalParamsFromMassless(*params[0]), params[1], params[2]
+#
+# for i in range(5):
+#     fig = plt.figure()
+#     ax = fig.add_subplot(111)
+#     b = True
+#     if i == 4:
+#         b = False
+#     plotGeneration(ax, *p, 1, i, b)
+#     ax.set_title(projectionNames[i])
+#     plt.show()
+#     plt.close(fig)
+#
+#
+# raise Exception
+
+
+
 
 
 def plotProjection(axB, axBBar, signalParams, backgroundParams, f, index, data):
