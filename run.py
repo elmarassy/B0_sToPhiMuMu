@@ -9,13 +9,12 @@ from jax import jit, random
 import jax
 import jax.numpy as jnp
 import tools
-import plot
 
 
 cosThetaLRange = [-1.0, 1.0]
 cosThetaKRange = [-1.0, 1.0]
 phiRange = [-jnp.pi, jnp.pi]
-timeRange = [0.0, 10.0]
+timeRange = [0.0, 7.0]
 massRange = [5.3, 5.7]
 
 x = generation.trueValues['$x$']
@@ -206,12 +205,18 @@ def integralBackground(c0, c1, c2, kM):
 @jit
 def likelihood(signalParams, backgroundParams, f, cosThetaL, cosThetaK, phi, time, mass, qSS, qOS, wSS, wOS, normB, normBBar):
     background = backgroundDistribution(time, mass, *backgroundParams) / integralBackground(*backgroundParams)
+    weightB = (1 + qSS * (1 - 2 * wSS)) * (1 + qOS * (1 - 2 * wOS)) / 4
+    weightBBar = (1 - qSS * (1 - 2 * wSS)) * (1 - qOS * (1 - 2 * wOS)) / 4
+    b = individualTimeDependent(1, 1, cosThetaL, cosThetaK, phi, time, mass, *signalParams)
+    bBar = individualTimeDependent(1, -1, cosThetaL, cosThetaK, phi, time, mass, *signalParams)
     pdf = (
-             (1 + qSS * (1 - 2 * wSS)) * (1 + qOS * (1 - 2 * wOS)) *
-             (f*individualTimeDependent(normB, 1, cosThetaL, cosThetaK, phi, time, mass, *signalParams) + (1-f)*background) +
-             (1 - qSS * (1 - 2 * wSS)) * (1 - qOS * (1 - 2 * wOS)) *
-             (f*individualTimeDependent(normBBar, -1, cosThetaL, cosThetaK, phi, time, mass, *signalParams) + (1-f)*background))
-    return -jnp.sum(jnp.log(pdf))
+             weightB *
+             (f*b/normB + (1-f)*background) +
+             weightBBar *
+             (f*bBar/normBBar + (1-f)*background))
+    weightUntagged = 1 - weightB - weightBBar
+    pdf2 = weightUntagged * (f*(b+bBar)/(normB+normBBar) + (1-f)*background)
+    return -jnp.sum(jnp.log(pdf))#-jnp.sum(jnp.log(pdf2))
 
 
 @jit
@@ -366,9 +371,12 @@ def generate(key, N, signalParams, backgroundParams, f, B0proportion, effSS, eff
     return cosThetaL, cosThetaK, phi, t, mass, tagChoiceSS, tagChoiceOS, jnp.full(N, mistagSS), jnp.full(N, mistagOS)
 
 
-def run(nEvents, nToys, effSS, effOS, wSS, wOS, saveProjectionValue=4, massless=True, B0proportion=0.5):
+def run(nEvents, nToys, effSS, effOS, wSS, wOS, saveProjectionValue=4, massless=True, B0proportion=0.5, untagged=False):
     key = jax.random.key(0)
 
+    if untagged:
+        effSS = 0
+        effOS = 0
     paramNames = generation.getFitParamNames(massless)
     pars = generation.getFitParams(massless)
     trueValues = np.array(pars[0] + pars[1] + [pars[2]])
@@ -390,7 +398,25 @@ def run(nEvents, nToys, effSS, effOS, wSS, wOS, saveProjectionValue=4, massless=
         limits = [(-1 - 4*abs(param), 1 + 4*abs(param)) for param in trueValues]
         limits[generation.getFitParamNames(True).index("$f$")] = (0, 1)
         limits[generation.getFitParamNames(True).index("$c_0$")] = (0, 1)
-
+        if untagged:
+            m.fixed['W1s'] = True
+            m.fixed['W1c'] = True
+            m.fixed['W3'] = True
+            m.fixed['W4'] = True
+            m.fixed['K5'] = True
+            m.fixed['K6s'] = True
+            m.fixed['W7'] = True
+            m.fixed['K8'] = True
+            m.fixed['K9'] = True
+            m.fixed['Z1s'] = True
+            m.fixed['Z1c'] = True
+            m.fixed['Z3'] = True
+            m.fixed['Z4'] = True
+            m.fixed['Z5'] = True
+            m.fixed['Z6s'] = True
+            m.fixed['Z7'] = True
+            m.fixed['Z8'] = True
+            m.fixed['Z9'] = True
         m.limits = limits
         m.strategy = 0
         m.errordef = Minuit.LIKELIHOOD
@@ -419,14 +445,14 @@ def run(nEvents, nToys, effSS, effOS, wSS, wOS, saveProjectionValue=4, massless=
 def main():
 
     nEvents = 6000
-    nToys = 1000
+    nToys = 3
     wSS = generation.trueValues['wSS']
     wOS = generation.trueValues['wOS']
     effSS = generation.trueValues['effSS']
     effOS = generation.trueValues['effOS']
 
-    names, pulls, values, savedData = run(nEvents, nToys, effSS, effOS, wSS, wOS)
-    plot.plot(names, pulls, values, savedData, 'plots')
+    names, pulls, values, savedData = run(nEvents, nToys, effSS, effOS, wSS, wOS, untagged=False)
+    plot.plot(names, pulls, values, savedData, nEvents, nToys, 'plots')
 
 
     # plot.project(saveProjectionsValue, [], [], [], effSS, effOS, wSS, wOS, "plots")
@@ -439,6 +465,7 @@ def main():
 if __name__ == "__main__":
     # profiler = cProfile.Profile()
     # profiler.enable()
+    import plot
     main()
     # profiler.disable()
     # stats = pstats.Stats(profiler).sort_stats('time')

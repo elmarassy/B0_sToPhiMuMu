@@ -1,3 +1,5 @@
+import json
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.offsetbox import AnchoredText
@@ -8,16 +10,53 @@ import tools
 from matplotlib.gridspec import GridSpec
 import matplotlib.patches
 import run
+import matplotlib as mpl
+
+# mpl.rc_file('schmitse-rc.rc')
+from objdict import ObjDict
 
 from run import cosThetaLRange, cosThetaKRange, phiRange, timeRange, massRange
-from run import projectSignalCosThetaL, projectSignalCosThetaK, projectSignalPhi, projectSignalT, projectSignalMass, projectBackgroundAngles, projectBackgroundTime, projectBackgroundMass
+from run import (
+    projectSignalCosThetaL,
+    projectSignalCosThetaK,
+    projectSignalPhi,
+    projectSignalT,
+    projectSignalMass,
+    projectBackgroundAngles,
+    projectBackgroundTime,
+    projectBackgroundMass,
+)
 
 projectionRanges = [cosThetaLRange, cosThetaKRange, phiRange, timeRange, massRange]
-signalProjectionFunctions = [projectSignalCosThetaL, projectSignalCosThetaK, projectSignalPhi, projectSignalT, projectSignalMass]
-backgroundProjectionFunctions = [projectBackgroundAngles, projectBackgroundAngles, projectBackgroundAngles, projectBackgroundTime, projectBackgroundMass]
+signalProjectionFunctions = [
+    projectSignalCosThetaL,
+    projectSignalCosThetaK,
+    projectSignalPhi,
+    projectSignalT,
+    projectSignalMass,
+]
+backgroundProjectionFunctions = [
+    projectBackgroundAngles,
+    projectBackgroundAngles,
+    projectBackgroundAngles,
+    projectBackgroundTime,
+    projectBackgroundMass,
+]
 
-projectionNames = [r"$\cos{\theta_l}$", r"$\cos{\theta_k}$", r"$\phi$", "$t$", "$m_{B_s^0}$"]
-colors = {'Both': 'green', 'SS': 'yellow', 'OS': 'orange', 'Untagged': 'red', 'Fit': 'blue'}
+projectionNames = [
+    r"$\cos{\theta_l}$",
+    r"$\cos{\theta_k}$",
+    r"$\phi$",
+    "$t$",
+    "$m_{B_s^0}$",
+]
+colors = {
+    "Both": "green",
+    "SS": "yellow",
+    "OS": "orange",
+    "Untagged": "red",
+    "Fit": "blue",
+}
 #
 # wSS = generation.trueValues['wSS']
 # wOS = generation.trueValues['wOS']
@@ -34,37 +73,82 @@ colors = {'Both': 'green', 'SS': 'yellow', 'OS': 'orange', 'Untagged': 'red', 'F
 # colors = [cmap(i) for i in np.linspace(0, 1, 4)]
 
 
-def plotGeneration(axis, signalParams, backgroundParams, f, sign, projectionIndex, stack=False):
-
-    projectionAxis = np.linspace(*projectionRanges[projectionIndex], 1000)
+def plotProjectionsOne(
+    axis, data, signalParams, backgroundParams, f, projectionIndex, B0proportion=0.5
+):
+    dataBins = 100
+    projectionBins = 1000
+    dataAxis = np.linspace(*projectionRanges[projectionIndex], dataBins)
+    projectionAxis = np.linspace(*projectionRanges[projectionIndex], projectionBins)
     width = projectionAxis[1] - projectionAxis[0]
-    signal = f*signalProjectionFunctions[projectionIndex](projectionAxis, sign, *signalParams)
-    oppositeSignal = f*signalProjectionFunctions[projectionIndex](projectionAxis, -sign, *signalParams)
 
-    both = signal*effSS*effOS*bothWeight
-    ss = signal*effSS*ssWeight
-    os = signal*effOS*osWeight
-    untagged = signal*untaggedWeight
-    scale = np.sum(both + ss + os + untagged) * width
+    signalB = signalProjectionFunctions[projectionIndex](
+        projectionAxis, 1, *signalParams
+    )
+    signalBBar = signalProjectionFunctions[projectionIndex](
+        projectionAxis, -1, *signalParams
+    )
 
-    background = (1-f)*backgroundProjectionFunctions[projectionIndex](projectionAxis, *backgroundParams)*scale
-    base = 0
-    if stack:
-        base = background
-        ax.bar(projectionAxis, background, width=width, color='tomato')
+    hist = np.histogram(data, bins=dataBins, range=projectionRanges[projectionIndex])[0]
+    scale = np.sum(hist) * (dataAxis[1] - dataAxis[0])
+    axis.errorbar(
+        dataAxis, hist, yerr=np.sqrt(hist), fmt=".", ecolor="black", capsize=3
+    )
 
-    ax.bar(projectionAxis, untagged, bottom=base, width=width, color=colors[0])
-    ax.bar(projectionAxis, ss, bottom=base + untagged, width=width, color=colors[1])
-    ax.bar(projectionAxis, os, bottom=base + untagged + ss, width=width, color=colors[2])
-    ax.bar(projectionAxis, both, bottom=base + untagged + ss + os, width=width, color=colors[3])
+    axis.plot(projectionAxis, signalB * scale * B0proportion, color="blue")
+    axis.plot(projectionAxis, signalBBar * scale * (1 - B0proportion), color="red")
+    axis.plot(
+        projectionAxis,
+        signalB * scale * B0proportion + signalBBar * scale * (1 - B0proportion),
+        color="black",
+    )
 
-    signal *= scale/f
-    if not stack:
-        axis.plot(projectionAxis, signal, color='red')
-    axis.plot(projectionAxis, background, linestyle='--', color='orange')
-    axis.plot(projectionAxis, signal + background, color='black', linestyle='--')
-    axis.set_ylim(bottom=0)
+
 #
+# fig = plt.figure(figsize=(8,5))
+# ax = fig.add_subplot(111)
+# trueValues = generation.getFitParams(True)
+# data = run.generate(jax.random.key(0), 100000, generation.getAllSignalParamsFromMassless(*trueValues[0]),
+#                            trueValues[1], trueValues[2], 0.5, generation.trueValues['effSS'],
+#                            generation.trueValues['effOS'], generation.trueValues['wSS'], generation.trueValues['wOS'])
+# index = 3
+# plotProjectionsOne(ax, data[index], generation.getAllSignalParamsFromMassless(*trueValues[0]), trueValues[1], trueValues[2], index)
+# plt.show()
+# print('done')
+# raise Exception
+#
+# def plotGeneration(axis, signalParams, backgroundParams, f, sign, projectionIndex, stack=False):
+#
+#     projectionAxis = np.linspace(*projectionRanges[projectionIndex], 1000)
+#     width = projectionAxis[1] - projectionAxis[0]
+#     signal = f*signalProjectionFunctions[projectionIndex](projectionAxis, sign, *signalParams)
+#     oppositeSignal = f*signalProjectionFunctions[projectionIndex](projectionAxis, -sign, *signalParams)
+#
+#     both = signal*effSS*effOS*bothWeight
+#     ss = signal*effSS*ssWeight
+#     os = signal*effOS*osWeight
+#     untagged = signal*untaggedWeight
+#     scale = np.sum(both + ss + os + untagged) * width
+#
+#     background = (1-f)*backgroundProjectionFunctions[projectionIndex](projectionAxis, *backgroundParams)*scale
+#     base = 0
+#     if stack:
+#         base = background
+#         ax.bar(projectionAxis, background, width=width, color='tomato')
+#
+#     ax.bar(projectionAxis, untagged, bottom=base, width=width, color=colors[0])
+#     ax.bar(projectionAxis, ss, bottom=base + untagged, width=width, color=colors[1])
+#     ax.bar(projectionAxis, os, bottom=base + untagged + ss, width=width, color=colors[2])
+#     ax.bar(projectionAxis, both, bottom=base + untagged + ss + os, width=width, color=colors[3])
+#
+#     signal *= scale/f
+#     if not stack:
+#         axis.plot(projectionAxis, signal, color='red')
+#     axis.plot(projectionAxis, background, linestyle='--', color='orange')
+#     axis.plot(projectionAxis, signal + background, color='black', linestyle='--')
+#     axis.set_ylim(bottom=0)
+#
+
 #
 # def plotProjection(axis, signalParams, backgroundParams, f, sign, projectionIndex, data, both, ss, os, untagged):
 #     dataBins = 100
@@ -113,9 +197,6 @@ def plotGeneration(axis, signalParams, backgroundParams, f, sign, projectionInde
 # raise Exception
 
 
-
-
-
 def plotProjection(axB, axBBar, signalParams, backgroundParams, f, index, data):
     ssB = data[5] == 1
     osB = data[6] == 1
@@ -148,32 +229,42 @@ def plotProjection(axB, axBBar, signalParams, backgroundParams, f, index, data):
 
     bothUntagged = currentData[untaggedMask]
 
-    weightB = np.full_like(bothB, (1 - wSS)*(1-wOS))
-    weightSSB = np.full_like(ssB, (1 - wSS)/2)
-    weightOSB = np.full_like(osB, (1-wOS)/2)
+    weightB = np.full_like(bothB, (1 - wSS) * (1 - wOS))
+    weightSSB = np.full_like(ssB, (1 - wSS) / 2)
+    weightOSB = np.full_like(osB, (1 - wOS) / 2)
     weightUntagged = np.full_like(bothUntagged, 0.25)
-    weightBBar = np.full_like(bothBBar, (1 - wSS)*(1-wOS))
-    weightSSBBar = np.full_like(ssBBar, (1 - wSS)/2)
-    weightOSBBar = np.full_like(osBBar, (1-wOS)/2)
+    weightBBar = np.full_like(bothBBar, (1 - wSS) * (1 - wOS))
+    weightSSBBar = np.full_like(ssBBar, (1 - wSS) / 2)
+    weightOSBBar = np.full_like(osBBar, (1 - wOS) / 2)
 
-    counts, bins, _ = axB.hist([bothB, ssB, osB, bothUntagged], bins=dataSpace, color=['green', 'yellow', 'orange', 'red'], stacked=True,
-                               weights=[weightB, weightSSB, weightOSB, weightUntagged],
-                               label=['Both', 'SS', 'OS', 'Untagged'])
+    counts, bins, _ = axB.hist(
+        [bothB, ssB, osB, bothUntagged],
+        bins=dataSpace,
+        color=["green", "yellow", "orange", "red"],
+        stacked=True,
+        weights=[weightB, weightSSB, weightOSB, weightUntagged],
+        label=["Both", "SS", "OS", "Untagged"],
+    )
     scaleB = np.sum(counts[-1]) * (bins[1] - bins[0])
     bSignalProj = signalProjectionFunctions[index](space, 1, *signalParams)
     bBackgroundProj = backgroundProjectionFunctions[index](space, *backgroundParams)
-    bProj = f*bSignalProj + (1-f)*bBackgroundProj
+    bProj = f * bSignalProj + (1 - f) * bBackgroundProj
 
-    axB.plot(space, bProj * scaleB, label='Distribution', color='blue')
-    counts, bins, _ = axBBar.hist([bothBBar, ssBBar, osBBar, bothUntagged], bins=dataSpace, color=['green', 'yellow', 'orange', 'red'], stacked=True,
-                                  weights=[weightBBar, weightSSBBar, weightOSBBar, weightUntagged],
-                                  label=['Both', 'SS', 'OS', 'Untagged'])
+    axB.plot(space, bProj * scaleB, label="Distribution", color="blue")
+    counts, bins, _ = axBBar.hist(
+        [bothBBar, ssBBar, osBBar, bothUntagged],
+        bins=dataSpace,
+        color=["green", "yellow", "orange", "red"],
+        stacked=True,
+        weights=[weightBBar, weightSSBBar, weightOSBBar, weightUntagged],
+        label=["Both", "SS", "OS", "Untagged"],
+    )
     scaleBBar = np.sum(counts[-1]) * (bins[1] - bins[0])
     bBarSignalProj = signalProjectionFunctions[index](space, -1, *signalParams)
     bBarBackgroundProj = backgroundProjectionFunctions[index](space, *backgroundParams)
-    bBarProj = f*bBarSignalProj + (1-f)*bBarBackgroundProj
+    bBarProj = f * bBarSignalProj + (1 - f) * bBarBackgroundProj
 
-    axBBar.plot(space, bBarProj * scaleBBar, label='Fit', color='blue')
+    axBBar.plot(space, bBarProj * scaleBBar, label="Fit", color="blue")
     axB.set_title(projectionNames[index])
     axBBar.set_title(projectionNames[index])
     axB.set_ylim(bottom=0)
@@ -181,8 +272,8 @@ def plotProjection(axB, axBBar, signalParams, backgroundParams, f, index, data):
 
 
 def plotProjectionSummary(signalParams, backgroundParams, f, data, dir, index=-1):
-    projDir = os.path.join(dir, 'projections')
-    largePullDir = os.path.join(projDir, 'largePulls')
+    projDir = os.path.join(dir, "projections")
+    largePullDir = os.path.join(projDir, "largePulls")
 
     figB = plt.figure(figsize=(8, 6))
     gsB = GridSpec(2, 3, figure=figB)
@@ -194,19 +285,22 @@ def plotProjectionSummary(signalParams, backgroundParams, f, data, dir, index=-1
         plotProjection(axB, axBBar, signalParams, backgroundParams, f, i, data)
 
     legend_axB = figB.add_subplot(gsB[1, 2])
-    legend_axB.axis('off')
+    legend_axB.axis("off")
     legend_axBBar = figBBar.add_subplot(gsBBar[1, 2])
-    legend_axBBar.axis('off')
-    handles = [matplotlib.patches.Patch(color=color, label=label) for label, color in colors.items()]
-    legend_axB.legend(handles=handles, loc='center', fontsize=12, title="Legend")
-    legend_axBBar.legend(handles=handles, loc='center', fontsize=12, title="Legend")
+    legend_axBBar.axis("off")
+    handles = [
+        matplotlib.patches.Patch(color=color, label=label)
+        for label, color in colors.items()
+    ]
+    legend_axB.legend(handles=handles, loc="center", fontsize=12, title="Legend")
+    legend_axBBar.legend(handles=handles, loc="center", fontsize=12, title="Legend")
 
     figB.suptitle("$B_s^0$ projections")
     figBBar.suptitle(r"$\bar{B}_s^0$ projections")
     figB.tight_layout()
     figBBar.tight_layout()
     if index != -1:
-        currentDir = os.path.join(largePullDir, f'{index}')
+        currentDir = os.path.join(largePullDir, f"{index}")
         os.makedirs(currentDir, exist_ok=True)
         figB.savefig(os.path.join(currentDir, "B.pdf"))
         figBBar.savefig(os.path.join(currentDir, "BBar.pdf"))
@@ -237,22 +331,56 @@ def plotProjectionSummary(signalParams, backgroundParams, f, data, dir, index=-1
         plt.close(figB_m)
         plt.close(figBBar_m)
 
-def plot(names, pulls, values, savedData, dir, massless=True):
+
+def plot(names, pulls, values, savedData, nEvents, nToys, dir, massless=True):
     trueValues = generation.getFitParams(massless)
-    plotSummary(names, pulls, massless, False, dir)
-    plotSummary(names, values, massless, True, dir, trueValues[0] + trueValues[1] + [trueValues[2]])
-    data = run.generate(jax.random.key(0), 100000, generation.getAllSignalParamsFromMassless(*trueValues[0]),
-                           trueValues[1], trueValues[2], 0.5, generation.trueValues['effSS'],
-                           generation.trueValues['effOS'], generation.trueValues['wSS'], generation.trueValues['wOS'])
-    plotProjectionSummary(generation.getAllSignalParamsFromMassless(*trueValues[0]),
-                          trueValues[1], trueValues[2], data, dir)
+    corr = plotSummary(names, pulls, massless, False, dir)
+    valSummary = plotSummary(
+        names,
+        values,
+        massless,
+        True,
+        dir,
+        trueValues[0] + trueValues[1] + [trueValues[2]],
+    )
+    data = run.generate(
+        jax.random.key(0),
+        100000,
+        generation.getAllSignalParamsFromMassless(*trueValues[0]),
+        trueValues[1],
+        trueValues[2],
+        0.5,
+        generation.trueValues["effSS"],
+        generation.trueValues["effOS"],
+        generation.trueValues["wSS"],
+        generation.trueValues["wOS"],
+    )
+    plotProjectionSummary(
+        generation.getAllSignalParamsFromMassless(*trueValues[0]),
+        trueValues[1],
+        trueValues[2],
+        data,
+        dir,
+    )
+    o = ObjDict()
+    o.nToys = nToys
+    o.nEvents = nEvents
+    o.nameOrder = [name.replace("$", "").replace("{", "").replace("}", "").replace("_", "").replace("\\", "").replace("^", "") for name in names]
+
+    o.trueValues = trueValues[0] + trueValues[1] + [trueValues[2]]
+    o.fitValues = [valSummary[name] for name in names]
+    o.pearsonCorrelation = corr.tolist()
+
+    with open(os.path.join(dir, f"summary.json"), "w") as f:
+        json.dump(o, f, indent=4)
+
 
 def plotMatrix(params, matrix, title, dir):
     fig, ax = plt.subplots(figsize=(8, 6))
     im = ax.imshow(matrix, vmin=-1, vmax=1)
 
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label('Correlation')
+    cbar.set_label("Correlation")
 
     ax.set_xticks(np.arange(len(params)))
     ax.set_yticks(np.arange(len(params)))
@@ -261,12 +389,12 @@ def plotMatrix(params, matrix, title, dir):
     for i in range(len(params)):
         for j in range(i, len(params)):
             text = f"{matrix[i, j]:.2f}"
-            ax.text(j, i, text, fontsize=4, ha='center', va='center')
+            ax.text(j, i, text, fontsize=4, ha="center", va="center")
 
     ax.set_title(title)
     ax.grid(False)
     fig.tight_layout()
-    fig.savefig(os.path.join(dir, f'{title}.pdf'))
+    fig.savefig(os.path.join(dir, f"{title}.pdf"))
     plt.close(fig)
 
 
@@ -278,44 +406,67 @@ def plotSummary(names, data, massless, values, dir, trueValues=None):
         corr = tools.pearsonCorrelation(data)
     newDir = os.path.join(dir, description)
     os.makedirs(newDir, exist_ok=True)
-
+    valSummary = dict()
     summaryFig, summaryAxs = plt.subplots(nrows=2, ncols=3, figsize=(16, 8))
     summaryAxs = summaryAxs.flatten()
     nbins = 100
     cols = 4
     if massless:
         cols = 3
-    for letterIndex, letter in enumerate(('K', 'W', 'H', 'Z', 'background')):
+    for letterIndex, letter in enumerate(("K", "W", "H", "Z", "background")):
         means = []
         sigmas = []
         letterNames = []
         fig, axs = plt.subplots(nrows=3, ncols=cols, figsize=(12, 8))
         fig.suptitle(f"{letter} {description}")
-        fig.subplots_adjust(left=0.05, right=0.95, top=0.92, bottom=0.08, wspace=0.3, hspace=0.3)
+        fig.subplots_adjust(
+            left=0.05, right=0.95, top=0.92, bottom=0.08, wspace=0.3, hspace=0.3
+        )
         axs = axs.flatten()
         i = 0
         for index, name in enumerate(names):
-            if name[1] == letter or (letter == 'W' and name == '$A_{CP}$') or (letter == 'background' and name in ["$f$", "$c_0$", "$c_1$", "$c_2$", "$k_m$", "$m_{B^0_s}$", r"$\sigma_m$"]):
+            if (
+                name[1] == letter
+                or (letter == "W" and name == "$A_{CP}$")
+                or (
+                    letter == "background"
+                    and name
+                    in [
+                        "$f$",
+                        "$c_0$",
+                        "$c_1$",
+                        "$c_2$",
+                        "$k_m$",
+                        "$m_{B^0_s}$",
+                        r"$\sigma_m$",
+                    ]
+                )
+            ):
                 ax = axs[i]
                 results, errors = tools.fitGaussian(data[:, index])
                 if values:
-                    space = np.linspace(results[0] - 5*results[1], results[0] + 5*results[1], nbins)
+                    space = np.linspace(
+                        results[0] - 5 * results[1], results[0] + 5 * results[1], nbins
+                    )
                 else:
                     space = np.linspace(-5, 5, nbins)
                 ax.hist(data[:, index], bins=space, color="cyan")
-                ax.plot(space, tools.gaussDistribution(space, *results) * len(data[:, index]) * (space[1] - space[0]))
+                ax.plot(
+                    space,
+                    tools.gaussDistribution(space, *results)
+                    * len(data[:, index])
+                    * (space[1] - space[0]),
+                )
                 if values:
-                    ax.axvline(trueValues[index], color='red', linewidth=1)
+                    ax.axvline(trueValues[index], color="red", linewidth=1)
                 ax.set_title(names[index])
                 text = (
-                    fr"$\mu$: ${float(results[0]):.3f}\pm{float(errors[0]):.3f}$" "\n"
-                    fr"$\sigma$: ${float(results[1]):.3f}\pm{float(errors[1]):.3f}$"
+                    rf"$\mu$: ${float(results[0]):.3f}\pm{float(errors[0]):.3f}$"
+                    "\n"
+                    rf"$\sigma$: ${float(results[1]):.3f}\pm{float(errors[1]):.3f}$"
                 )
                 at = AnchoredText(
-                    text,
-                    loc='upper right',
-                    prop=dict(size=9),
-                    frameon=True
+                    text, loc="upper right", prop=dict(size=9), frameon=True
                 )
                 at.patch.set_boxstyle("round,pad=0.3")
                 at.patch.set_facecolor("white")
@@ -336,30 +487,65 @@ def plotSummary(names, data, massless, values, dir, trueValues=None):
         means = np.array(means).T
         sigmas = np.array(sigmas).T
         if values:
-            ax.errorbar(x, [generation.trueValues[name] for name in letterNames], label='True values', xerr=0.5, yerr=0, color='red', fmt='.')
-            ax.errorbar(x, means[0], yerr=sigmas[0], label=r'Fit values', fmt='.', ecolor='black', capsize=3, color='cyan')
+            ax.errorbar(
+                x,
+                [generation.trueValues[name] for name in letterNames],
+                label="True values",
+                xerr=0.5,
+                yerr=0,
+                color="red",
+                fmt=".",
+            )
+            ax.errorbar(
+                x,
+                means[0],
+                yerr=sigmas[0],
+                label=r"Fit values",
+                fmt=".",
+                ecolor="black",
+                capsize=3,
+                color="cyan",
+            )
+            for i, name in enumerate(letterNames):
+                valSummary[name] = (means[0][i], sigmas[0][i])
+            # print(letterNames, means, sigmas)
         else:
-            ax.axhline(0, color='gray', linestyle='--')
-            ax.axhline(1, color='gray', linestyle='--')
+            ax.axhline(0, color="gray", linestyle="--")
+            ax.axhline(1, color="gray", linestyle="--")
             ax.set_ylim((-0.5, 1.5))
-            ax.errorbar(x, means[0], yerr=means[1], label=r"$\mu$", fmt='.', ecolor='black', capsize=3, color='cyan')
-            ax.errorbar(x, sigmas[0], yerr=sigmas[1], label=r"$\sigma$", fmt='.', ecolor='black', capsize=3, color='red')
+            ax.errorbar(
+                x,
+                means[0],
+                yerr=means[1],
+                label=r"$\mu$",
+                fmt=".",
+                ecolor="black",
+                capsize=3,
+                color="cyan",
+            )
+            ax.errorbar(
+                x,
+                sigmas[0],
+                yerr=sigmas[1],
+                label=r"$\sigma$",
+                fmt=".",
+                ecolor="black",
+                capsize=3,
+                color="red",
+            )
         ax.legend()
         letterIndex += 1
-        fig.savefig(os.path.join(newDir, f'{letter}.pdf'))
+        fig.savefig(os.path.join(newDir, f"{letter}.pdf"))
         # fig.savefig(f'plots/{description}_{letter}.pdf')
         plt.close(fig)
-        summaryFig.suptitle(f"{description.capitalize()} summary")
-        summaryFig.tight_layout()
+    summaryFig.suptitle(f"{description.capitalize()} summary")
+    summaryFig.tight_layout()
 
-        # summaryFig.savefig(f'plots/summary.pdf')
-        summaryFig.savefig(os.path.join(newDir, f'summary.pdf'))
-        plt.close(summaryFig)
+    # summaryFig.savefig(f'plots/summary.pdf')
+    summaryFig.savefig(os.path.join(newDir, f"summary.pdf"))
+    plt.close(summaryFig)
 
-        if not values:
-            plotMatrix(names, corr, 'pearsonCorrelation', newDir)
-
-
-
-
-
+    if not values:
+        plotMatrix(names, corr, "pearsonCorrelation", newDir)
+        return corr
+    return valSummary
