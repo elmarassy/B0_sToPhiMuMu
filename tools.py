@@ -5,7 +5,7 @@ from iminuit import Minuit
 from jax import jit, vmap
 import jax.numpy as jnp
 from torchquad import Simpson, set_up_backend
-
+from scipy.stats import chi2
 set_up_backend("jax", data_type="float64")
 integrator = Simpson()
 
@@ -103,11 +103,23 @@ def convolutionIntegral(gamma, z, t):
 
 def getIntegrals(acceptance, timeRange, gamma, x, y):
     coshIntegral = integrator.integrate(lambda time: acceptance(time) * ((convolutionIntegral(gamma, y, time) + convolutionIntegral(gamma, -y, time))/2.0),
-                                        dim=1, N=99999, integration_domain=[timeRange])
+                                        dim=1, N=999999, integration_domain=[timeRange])
     sinhIntegral = integrator.integrate(lambda time: acceptance(time) * ((convolutionIntegral(gamma, y, time) - convolutionIntegral(gamma, -y, time))/2.0),
-                                        dim=1, N=99999, integration_domain=[timeRange])
+                                        dim=1, N=999999, integration_domain=[timeRange])
     cosIntegral = integrator.integrate(lambda time: acceptance(time) * jnp.real(convolutionIntegral(gamma, 1j*x, time)),
-                                       dim=1, N=99999, integration_domain=[timeRange])
+                                       dim=1, N=999999, integration_domain=[timeRange])
     sinIntegral = integrator.integrate(lambda time: acceptance(time) * jnp.imag(convolutionIntegral(gamma, 1j*x, time)),
-                                       dim=1, N=99999, integration_domain=[timeRange])
+                                       dim=1, N=999999, integration_domain=[timeRange])
     return coshIntegral, sinhIntegral, cosIntegral, sinIntegral
+
+def poissonError(n):
+    alpha = 1 - 0.6827
+    if n == 0:
+        lower = 0
+        upper = 0.5 * chi2.ppf(1 - alpha / 2, 2 * (n + 1))
+    else:
+        lower = 0.5 * chi2.ppf(alpha / 2, 2 * n)
+        upper = 0.5 * chi2.ppf(1 - alpha / 2, 2 * (n + 1))
+    err_lower = n - lower
+    err_upper = upper - n
+    return err_lower, err_upper
