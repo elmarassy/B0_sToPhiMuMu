@@ -1,4 +1,6 @@
-#
+import os
+os.environ["JAX_ENABLE_X64"] = "True"
+import jax
 # generationValues = [("x", 26.93), ("y", 0.124),
 #     ("K1c", 0.8661557825167852), ("K2s", 0.04906538817313792),
 #     ("K2c", -0.8392845161954529), ("K3", -0.014487296919474972),
@@ -51,7 +53,8 @@ trueValues = {"$f$": 0.67, #proportion of events which are signal
 
 tagging = {'badTagging': {'effSS': 0.8, 'effOS': 0.4, 'wSS': 0.42, 'wOS': 0.39},
            'goodTagging': {'effSS': 0.8, 'effOS': 0.4, 'wSS': 0.40, 'wOS': 0.36},
-           'untagged': {'effSS': 0.0, 'effOS': 0.0, 'wSS': 0.0, 'wOS': 0.0}}
+           'untagged': {'effSS': 0.0, 'effOS': 0.0, 'wSS': 0.0, 'wOS': 0.0},
+           'perfectTagging': {'effSS': 1.0, 'effOS': 1.0, 'wSS': 0.0, 'wOS': 0.0}}
 
 paramOrder = ["$x$", "$y$", "$gamma$", "$K_{1s}$", "$K_{1c}$", "$K_{2s}$", "$K_{2c}$", "$K_3$", "$K_4$", "$K_5$", "$K_{6s}$", "$K_7$", "$K_8$", "$K_9$",
                  "$W_{1s}$", "$W_{1c}$", "$W_{2s}$", "$W_{2c}$", "$W_3$", "$W_4$", "$W_5$", "$W_{6s}$", "$W_7$", "$W_8$", "$W_9$",
@@ -80,6 +83,56 @@ backgroundParams = ["$c_0$", "$c_1$", "$c_2$", "$k_m$"]
 #             params.append(trueValues[param])
 #     return params
 
+@jax.jit
+def transform(K1c, K3, K4, K5, K6s, K7, K8, K9,
+                     W1s, W1c, W3, W4, W5, W6s, W7, W8, W9,
+                     H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
+                     Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9, m, sigmaM):
+
+    # K1s = (3.0/4.0) * (1 - K1c + y*H1c) + y*H1s
+    # K1s, H1s = H1s + K1s, K1s - H1s
+
+    # K1c, H1c = H1c + K1c, K1c - H1c
+    # K3, H3 = H3 + K3, K3 - H3
+    # K4, H4 = H4 + K4, K4 - H4
+    # W5, H5 = H5 + W5, W5 - H5
+    # W6s, H6s = H6s + W6s, W6s - H6s
+    # K7, H7 = H7 + K7, K7 - H7
+    # W8, H8 = H8 + W8, W8 - H8
+    # W9, H9 = H9 + W9, W9 - H9
+
+    return (K1c, K3, K4, K5, K6s, K7, K8, K9,
+            W1s, W1c, W3, W4, W5, W6s, W7, W8, W9,
+            H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
+            Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9, m, sigmaM)
+
+@jax.jit
+def transformBack(K1c, K3, K4, K5, K6s, K7, K8, K9,
+              W1s, W1c, W3, W4, W5, W6s, W7, W8, W9,
+              H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
+              Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9, m, sigmaM):
+
+    # K1c, H1c = H1c + K1c, K1c - H1c
+    # K3, H3 = H3 + K3, K3 - H3
+    # K4, H4 = H4 + K4, K4 - H4
+    # W5, H5 = H5 + W5, W5 - H5
+    # W6s, H6s = H6s + W6s, W6s - H6s
+    # K7, H7 = H7 + K7, K7 - H7
+    # W8, H8 = H8 + W8, W8 - H8
+    # W9, H9 = H9 + W9, W9 - H9
+    # y = 0.124
+    #
+    #
+    # K1s = (((3.0/4.0) * (1 - K1c/2 + y*H1c/2) - 2*H1s) * (y + 1)/(y-1))/2.0 + (y+1)/(y-1)/2
+    # H1s = K1s - H1s
+
+
+    return (K1c, K3, K4, K5, K6s, K7, K8, K9,
+            W1s, W1c, W3, W4, W5, W6s, W7, W8, W9,
+            H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
+            Z1s, Z1c, Z3, Z4, Z5, Z6s, Z7, Z8, Z9, m, sigmaM)
+
+
 def getAllSignalParamsFromMassless(K1c, K3, K4, K5, K6s, K7, K8, K9,
                              W1s, W1c, W3, W4, W5, W6s, W7, W8, W9,
                              H1s, H1c, H3, H4, H5, H6s, H7, H8, H9,
@@ -98,7 +151,17 @@ def getAllSignalParamsFromMassless(K1c, K3, K4, K5, K6s, K7, K8, K9,
     W2c = -W1c
     H2c = -H1c
     Z2c = -Z1c
-
+    # K1s, W1s = W1s + K1s, W1s - K1s
+    # K2s, W2s = W2s + K2s, W2s - K2s
+    # K1c, W1c = W1c + K1c, W1c - K1c
+    # K2c, W2c = W2c + K2c, W2c - K2c
+    # K3, W3 = W3 + K3, W3 - K3
+    # K4, W4 = W4 + K4, W4 - K4
+    # K5, W5 = W5 + K5, K5 - W5
+    # K6s, W6s = W6s + K6s, K6s - W6s
+    # K7, W7 = W7 + K7, W7 - K7
+    # K8, W8 = W8 + K8, K8 - W8
+    # K9, W9 = W9 + K9, K9 - W9
 
     return (K1s, K1c, K2s, K2c, K3, K4, K5, K6s, K7, K8, K9,
             W1s, W1c, W2s, W2c, W3, W4, W5, W6s, W7, W8, W9,
@@ -158,4 +221,11 @@ def getFitParamNames(timeDependent):
     background = [param for param in backgroundParams]
     return signal + background + ["$f$"]
 
-
+def get():
+    pars = getFitParams(True, 0, 'theory')
+    return pars[0]
+print(get())
+import numpy as np
+print(np.array(get()) - np.array(transformBack(*transform(*get()))))
+# print(list(transform(*get())))
+# print(list(transform(*transform(*get()))))

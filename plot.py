@@ -62,7 +62,7 @@ colors = {
 
 }
 
-def plotProjection(axis, signalParams, backgroundParams, f, projectionIndex, data, B0proportion=0.5, stacked=False):
+def plotProjection(axis, signalParams, backgroundParams, f, projectionIndex, data, B0proportion=0.5, stacked=False, color=None):
     divider = make_axes_locatable(axis)
     pullAxis = divider.append_axes('bottom', 1.5, pad=0.0)
     untagged = np.where(data[5] + data[6] == 0)
@@ -107,7 +107,7 @@ def plotProjection(axis, signalParams, backgroundParams, f, projectionIndex, dat
         axis.plot(
             projectionAxis,
             un + b + bBar + background,
-            color="darkturquoise",
+            color="darkturquoise" if color is None else color,
             )
     else:
         axis.fill_between(projectionAxis, background, color='orange', linewidth=3)
@@ -118,7 +118,7 @@ def plotProjection(axis, signalParams, backgroundParams, f, projectionIndex, dat
         axis.plot(
             projectionAxis,
             un + b + bBar + background,
-            color="darkturquoise",
+            color="darkturquoise" if color is None else color,
             )
     conversion = int(projectionBins / dataBins)
     total = un + b + bBar + background
@@ -153,10 +153,11 @@ def plotProjectionSummary(signalParams, backgroundParams, f, data, dir, index=-1
     figB = plt.figure(figsize=(32, 18))
     gs = figB.add_gridspec(2, 3, hspace=0.20, wspace=0.2)
     stacked = [True, True, True, True, True]
-
+    pars = generation.getFitParams(True, 2, 'theory')
     for i in range(5):
         axB = figB.add_subplot(gs[i])
         plotProjection(axB, signalParams, backgroundParams, f, i, data, stacked=stacked[i])
+        # plotProjection(axB, generation.getAllSignalParamsFromMassless(*pars[0]), pars[1], pars[2], i, data, stacked=stacked[i], color='red')
 
     legend_axB = figB.add_subplot(gs[1, 2])
     legend_axB.axis("off")
@@ -180,7 +181,7 @@ def plotProjectionSummary(signalParams, backgroundParams, f, data, dir, index=-1
         matplotlib.patches.Patch(color=color, label=label) if label == 'Background' else (legend_axB.plot([], [], color=color, label=label, linewidth=5)[0] if label != "Pseudodata"  else legend_axB.errorbar([], [], xerr=None, yerr=[], color='black', fmt='.', label=label))
         for label, color in colors.items() if (tagging != 'untagged' or (label != "Signal (tag $B_s^0$)" and label != r"Signal (tag $\bar{B}_s^0$)"))
     ]
-    legend = legend_axB.legend(handles=handles, loc="center", fontsize=44, title=r''f'${lower}'r'\,\mathrm{MeV}/\mathrm{c}^2<q^2<'f'{upper}' r'\,\mathrm{MeV}/\mathrm{c}^2$' '\n'r'$\mathcal{L}_{\mathrm{int}}='f'{lum}' r'\,\mathrm{fb}^{-1}$''\n', title_fontsize=44)
+    legend = legend_axB.legend(handles=handles, loc="center", fontsize=44, title=r''f'${lower}'r'\,\mathrm{GeV}^2/\mathrm{c}^4<q^2<'f'{upper}' r'\,\mathrm{GeV}^2/\mathrm{c}^4$' '\n'r'$\mathcal{L}_{\mathrm{int}}='f'{lum}' r'\,\mathrm{fb}^{-1}$''\n', title_fontsize=44)
     plt.setp(legend.get_title(), multialignment='center')
 
     if index != -1:
@@ -197,9 +198,9 @@ def plotProjectionSummary(signalParams, backgroundParams, f, data, dir, index=-1
             plt.close(fig)
 
 
-def plot(names, pulls, values, savedData, nEvents, nToys, dir, q2_range, luminosity, generationName, tagging, B0proportion=0.5):
+def plot(names, pulls, values, savedData, nEvents, nToys, dir, q2_range, luminosity, generationName, tagging, errs, deltacov, B0proportion=0.5):
     trueValues = generation.getFitParams(True, q2_range, generationName)
-    corr = plotSummary(names, pulls, True, False, dir, q2_range, generationName)
+    corr, pullSummary = plotSummary(names, pulls, True, False, dir, q2_range, generationName)
     valSummary = plotSummary(
         names,
         values,
@@ -231,20 +232,20 @@ def plot(names, pulls, values, savedData, nEvents, nToys, dir, q2_range, luminos
         tagging=tagging,
     )
     for i, d in enumerate(savedData):
-        plotProjectionSummary(generation.getAllSignalParamsFromMassless(*values[i][:-5]), values[i][-5:-1], values[i][-1], savedData[i], dir, i, B0proportion=B0proportion, tagging=tagging)
+        plotProjectionSummary(generation.getAllSignalParamsFromMassless(*generation.transformBack(*values[i][:-5])), values[i][-5:-1], values[i][-1], savedData[i], dir, index=i, B0proportion=B0proportion, tagging=tagging)
     o = ObjDict()
     o.nToys = nToys
     o.nEvents = nEvents
     o.q2_range = generation.q2_ranges[q2_range]
     o.integratedLuminosity = generation.integratedLuminosities[luminosity]
-    o.tagging = {'effSS': generation.trueValues["effSS"], 'effOS': generation.trueValues["effOS"],
-                 "wSS": generation.trueValues["wSS"], "wOS": generation.trueValues["wOS"]}
+    o.tagging = {'effSS': generation.tagging[tagging]['effSS'], 'effOS': generation.tagging[tagging]['effOS'],
+                 "wSS": generation.tagging[tagging]['wSS'], "wOS": generation.tagging[tagging]['wOS']}
     o.nameOrder = [name.replace("$", "").replace("{", "").replace("}", "").replace("_", "").replace("\\", "").replace("^", "") for name in names]
 
     o.trueValues = trueValues[0] + trueValues[1] + [trueValues[2]]
     o.fitValues = [valSummary[name] for name in names]
+    o.pullValues = [pullSummary[name] for name in names]
     o.pearsonCorrelation = corr.tolist()
-
 
     with open(os.path.join(dir, f"summary.json"), "w") as f:
         json.dump(o, f, indent=4)
@@ -283,6 +284,7 @@ def plotSummary(names, data, massless, values, dir, q2_range, generationName, tr
     newDir = os.path.join(dir, description)
     os.makedirs(newDir, exist_ok=True)
     valSummary = dict()
+    pullSummary = dict()
     summaryFig, summaryAxs = plt.subplots(nrows=2, ncols=3, figsize=(16, 8))
     summaryAxs = summaryAxs.flatten()
     nbins = 100
@@ -363,6 +365,7 @@ def plotSummary(names, data, massless, values, dir, q2_range, generationName, tr
         means = np.array(means).T
         sigmas = np.array(sigmas).T
         generated = generation.getFitParams(True, q2_range, generationName)
+        generated = (generation.transform(*generated[0]), generated[1], generated[2])
         if values:
             ax.errorbar(
                 x,
@@ -414,6 +417,8 @@ def plotSummary(names, data, massless, values, dir, q2_range, generationName, tr
         letterIndex += 1
         fig.savefig(os.path.join(newDir, f"{letter}.pdf"))
         plt.close(fig)
+        for i, name in enumerate(letterNames):
+            pullSummary[name] = [[means[0][i], means[1][i]], [sigmas[0][i], sigmas[1][i]]]
     summaryFig.suptitle(f"{description.capitalize()} summary")
     summaryFig.tight_layout()
 
@@ -423,6 +428,6 @@ def plotSummary(names, data, massless, values, dir, q2_range, generationName, tr
     if not values:
         plotMatrix(names, corr, "pearsonCorrelation", newDir)
         mpl.rc_file('config.rc')
-        return corr
+        return corr, pullSummary
     mpl.rc_file('config.rc')
     return valSummary

@@ -123,3 +123,27 @@ def poissonError(n):
     err_lower = n - lower
     err_upper = upper - n
     return err_lower, err_upper
+
+
+
+@jit
+def test(i, vec):
+    mu = 0
+    sigma = 1
+    p = gaussDistribution(vec, mu + i, sigma)
+
+    s = jnp.sum(-jnp.log(p))
+    return s
+
+if __name__ == '__main__':
+    n = 100000
+
+    vec = jax.random.uniform(jax.random.key(0), (n,), minval=0, maxval=1)
+    test(0, vec)
+    import time
+    arr = jnp.array([i for i in range(1000)])
+
+    t = time.time()
+    v = jax.vmap(lambda i: test(i, vec))
+    jax.block_until_ready(v(vec))
+    print(time.time() - t)
